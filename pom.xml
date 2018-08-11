@@ -7,10 +7,8 @@
 	<artifactId>demo</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<modules>
-		<module>jedistest</module>
-		<module>lettucetest</module>
+		<module>redistest</module>
 		<module>template</module>
-        <module>lettucetest</module>
 		<module>lettuce</module>
 	</modules>
 	<packaging>pom</packaging>
