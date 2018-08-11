@@ -1,28 +1,28 @@
-package com.redistest.lettuce;
+package com.lettuce;
 
-import io.lettuce.core.RedisFuture;
-import io.lettuce.core.ScriptOutputType;
-import io.lettuce.core.SetArgs;
-import io.lettuce.core.api.StatefulRedisConnection;
-import io.lettuce.core.api.async.RedisAsyncCommands;
-import io.lettuce.core.api.sync.RedisCommands;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import com.lambdaworks.redis.*;
+import com.lambdaworks.redis.api.StatefulRedisConnection;
+import com.lambdaworks.redis.api.async.RedisAsyncCommands;
+import com.lambdaworks.redis.api.sync.RedisCommands;
 
-import javax.annotation.Resource;
 import java.util.concurrent.ExecutionException;
 
 /**
  * @author zonzie
  * @date 2018/8/10 17:25
  */
-@RestController
-@RequestMapping
 public class LettuceClient {
 
-    @Resource(name = "lettuceConnect")
-    private StatefulRedisConnection<String, String> connection;
+//    @Resource(name = "lettuceConnect")
+//    private StatefulRedisConnection<String, String> connection;
+
+    private static StatefulRedisConnection<String, String> connection;
+
+    static {
+        RedisClient client = RedisClient.create(RedisURI.create("redis://192.168.198.128:6379"));
+        StatefulRedisConnection<String, String> connect = client.connect();
+        connection = connect;
+    }
 
     private static final int DEFAULT_TIME = 1000;
     private static final String LUA_SCRIPT = "if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end";
@@ -32,7 +32,6 @@ public class LettuceClient {
      * @param key
      * @param value
      */
-    @GetMapping("lettuceSet")
     public String lettuceSet(String key, String value) {
         RedisCommands<String, String> commands = connection.sync();
         SetArgs px = SetArgs.Builder.nx().px(5000);
@@ -45,7 +44,6 @@ public class LettuceClient {
      * @param key
      * @return
      */
-    @GetMapping("lettuceGet")
     public String lettuceGet(String key) {
         RedisCommands<String, String> sync = connection.sync();
         String s = sync.get(key);
@@ -60,7 +58,6 @@ public class LettuceClient {
      * @throws ExecutionException
      * @throws InterruptedException
      */
-    @GetMapping("asyncSet")
     public String lettuceAsyncSet(String key, String value) throws ExecutionException, InterruptedException {
         RedisAsyncCommands<String, String> async = connection.async();
         // 加锁
@@ -78,7 +75,6 @@ public class LettuceClient {
      * @throws ExecutionException
      * @throws InterruptedException
      */
-    @GetMapping(value = "lettuceTryLock")
     public String tryLock(String key, String value) throws ExecutionException, InterruptedException {
         // 自定义阻塞的时间
         int blockTIme = 5000;
@@ -107,7 +103,6 @@ public class LettuceClient {
      * @param key
      * @param value
      */
-    @GetMapping("lettuceUnLock")
     public Object unlock(String key, String value) throws ExecutionException, InterruptedException {
 
         RedisAsyncCommands<String, String> async = connection.async();
@@ -125,13 +120,20 @@ public class LettuceClient {
      * @throws ExecutionException
      * @throws InterruptedException
      */
-    @GetMapping("asyncGet")
     public String lettuceAsyncGet(String key) throws ExecutionException, InterruptedException {
         RedisAsyncCommands<String, String> async = connection.async();
         RedisFuture<String> stringRedisFuture = async.get(key);
         String s = stringRedisFuture.get();
         System.out.println(s);
         return s;
+    }
+
+    public static void main(String[] args) throws ExecutionException, InterruptedException {
+        LettuceClient lettuceClient = new LettuceClient();
+        String s = lettuceClient.lettuceSet("hello", "world");
+        System.out.println(s);
+        String s1 = lettuceClient.tryLock("hello", "world");
+        lettuceClient.unlock("hello","world");
     }
 
 }

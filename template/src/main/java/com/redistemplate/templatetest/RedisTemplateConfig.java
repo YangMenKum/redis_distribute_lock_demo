@@ -1,4 +1,4 @@
-package com.redistest.redistemplate;
+package com.redistemplate.templatetest;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
