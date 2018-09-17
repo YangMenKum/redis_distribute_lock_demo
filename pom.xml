@@ -10,6 +10,7 @@
 		<module>redistest</module>
 		<module>template</module>
 		<module>lettuce</module>
+		<module>redisson</module>
 	</modules>
 	<packaging>pom</packaging>
 

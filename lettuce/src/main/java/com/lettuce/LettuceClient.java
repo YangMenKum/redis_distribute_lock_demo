@@ -5,7 +5,10 @@ import com.lambdaworks.redis.api.StatefulRedisConnection;
 import com.lambdaworks.redis.api.async.RedisAsyncCommands;
 import com.lambdaworks.redis.api.sync.RedisCommands;
 
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author zonzie
@@ -18,10 +21,17 @@ public class LettuceClient {
 
     private static StatefulRedisConnection<String, String> connection;
 
+    private static ThreadPoolExecutor poolExecutor;
+
+    // 互斥锁的key
+    private static final String MUTEX_KEY = "mutex_key";
+
     static {
+        // 初始化connection
         RedisClient client = RedisClient.create(RedisURI.create("redis://192.168.198.128:6379"));
-        StatefulRedisConnection<String, String> connect = client.connect();
-        connection = connect;
+        connection = client.connect();
+        // 初始化线程池
+        poolExecutor = new ThreadPoolExecutor(5, 10, 200, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(5), new ThreadPoolExecutor.DiscardOldestPolicy());
     }
 
     private static final int DEFAULT_TIME = 1000;
@@ -35,8 +45,7 @@ public class LettuceClient {
     public String lettuceSet(String key, String value) {
         RedisCommands<String, String> commands = connection.sync();
         SetArgs px = SetArgs.Builder.nx().px(5000);
-        String set = commands.set(key, value, px);
-        return set;
+        return commands.set(key, value, px);
     }
 
     /**
@@ -46,8 +55,7 @@ public class LettuceClient {
      */
     public String lettuceGet(String key) {
         RedisCommands<String, String> sync = connection.sync();
-        String s = sync.get(key);
-        return s;
+        return sync.get(key);
     }
 
     /**
@@ -128,12 +136,87 @@ public class LettuceClient {
         return s;
     }
 
+    /**
+     * 解决缓存击穿问题, 方法一
+     * 互斥锁
+     * 为了解决缓存击穿的问题, 业界常用的做法--设置mutex key
+     * @param key 互斥锁的key
+     */
+    public String mutexGet(String key) throws InterruptedException {
+        RedisCommands<String, String> sync = connection.sync();
+        String value = sync.get(key);
+        if(value == null) {
+            String set = sync.set(MUTEX_KEY, "1", SetArgs.Builder.nx().px(3 * 60));
+            if("OK".equalsIgnoreCase(set)) {
+                // 从数据库获取value
+                value = "getValueByKeyFromDB";
+                sync.set(key, value, SetArgs.Builder.px(1000 * 60 * 60 * 2));
+                sync.del(MUTEX_KEY);
+                return value;
+            } else {
+                Thread.sleep(50);
+                // 递归重试
+                mutexGet(key);
+            }
+        }
+        return value;
+    }
+
+    /**
+     * 解决缓存击穿的问题,方法二
+     * 提前更新key
+     * @param key
+     */
+    public String get(final String key) throws InterruptedException {
+        final RedisCommands<String, String> sync = connection.sync();
+        String value = sync.get(key);
+        Long ttl = sync.ttl(key);
+        // 如果key已经过期,立即从数据库获取新的value
+        if(value == null) {
+            String set = sync.set(MUTEX_KEY, "1", SetArgs.Builder.nx().px(3 * 60));
+            if("OK".equalsIgnoreCase(set)) {
+                // 从数据库获取value
+                String var = "getValueByKeyFromDB";
+                sync.set(key, var, SetArgs.Builder.px(1000 * 60 * 60 * 2));
+                sync.del(MUTEX_KEY);
+                // 返回新的值
+                return var;
+            } else {
+                Thread.sleep(50);
+                // 递归重试
+                get(key);
+            }
+        }
+        // 10秒后key过期
+        if(ttl < 10) {
+            // 异步执行缓存更新操作
+            poolExecutor.execute(new Runnable() {
+                public void run() {
+                    // 设置互斥锁
+                    String set = sync.set(MUTEX_KEY, "1", SetArgs.Builder.nx().px(3 * 60));
+                    if("OK".equalsIgnoreCase(set)) {
+                        // 从数据库获取value
+                        String var = "getValueByKeyFromDB";
+                        // 设置新的value
+                        sync.setex(key, 2*60*60, var);
+                        // 删除互斥锁
+                        sync.del(MUTEX_KEY);
+                    }
+                }
+            });
+            // 返回旧的值
+            return value;
+        }
+        return value;
+    }
+
     public static void main(String[] args) throws ExecutionException, InterruptedException {
         LettuceClient lettuceClient = new LettuceClient();
-        String s = lettuceClient.lettuceSet("hello", "world");
-        System.out.println(s);
-        String s1 = lettuceClient.tryLock("hello", "world");
-        lettuceClient.unlock("hello","world");
+//        String s = lettuceClient.lettuceSet("hello", "world");
+//        System.out.println(s);
+//        String s1 = lettuceClient.tryLock("hello", "world");
+//        lettuceClient.unlock("hello","world");
+        lettuceClient.get("hello");
     }
 
 }
