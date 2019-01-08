@@ -84,7 +84,7 @@ public class RedisTemplateController {
     public String unlock(String key, String value) {
         String script = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end";
         DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(script, Long.class);
-        Long execute = redisTemplate.execute(redisScript, Collections.singletonList(key), value);
+        Long execute = redisTemplate.execute(redisScript, Collections.singletonList(key), Collections.singletonList(value));
         System.out.println("unlock result: "+execute);
         if(execute != null && execute != 0) {
             // 解锁成功
